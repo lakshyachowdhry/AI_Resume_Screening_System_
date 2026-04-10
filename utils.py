@@ -1,22 +1,8 @@
 from __future__ import annotations
 
-from __future__ import annotations
-
-import os
-from pathlib import Path
-
-# Root directory
-ROOT_DIR = Path(__file__).resolve().parent
-
-# Model directory
-MODEL_DIR = ROOT_DIR / "model"
-
-# Create folder if not exists
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
-
 import json
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -25,17 +11,27 @@ import joblib
 import pandas as pd
 
 
+# Root directory
 ROOT_DIR = Path(__file__).resolve().parent
+
+# Model directory
+MODEL_DIR = ROOT_DIR / "model"
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+# Output / logs directory
 OUTPUT_DIR = ROOT_DIR / "outputs"
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 LOG_FILE = OUTPUT_DIR / "logs.txt"
 
 
 def setup_logging() -> None:
     """
-    Configure a simple file + console logger for the project.
+    Configure logging (safe for repeated calls).
     """
+    if logging.getLogger().handlers:
+        return  # جلوگیری duplicate handlers
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
@@ -48,23 +44,28 @@ def setup_logging() -> None:
 
 def log_event(event: str, extras: Optional[Dict[str, Any]] = None) -> None:
     """
-    Append a structured log line to the log file.
+    Append structured logs to file.
     """
     payload = {
         "timestamp": datetime.utcnow().isoformat(),
         "event": event,
         "extras": extras or {},
     }
-    with LOG_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(payload) + "\n")
+
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass  # fail silently (important for Streamlit)
 
 
 def safe_load_joblib(path: Path) -> Any:
     """
-    Load a joblib file if it exists; return None otherwise.
+    Load joblib file safely.
     """
     if not path.exists():
         return None
+
     try:
         return joblib.load(path)
     except Exception:
@@ -75,7 +76,7 @@ def safe_load_joblib(path: Path) -> Any:
 class ScoreBreakdown:
     similarity_score: float  # 0–100
     skills_score: float  # 0–100
-    model_probability: Optional[float]  # 0–1, may be None
+    model_probability: Optional[float]  # 0–1
     final_score: float  # 0–100
 
 
@@ -88,15 +89,15 @@ def compute_final_score(
     w_model: float = 0.2,
 ) -> ScoreBreakdown:
     """
-    Combine different signals into a single final score.
+    Combine similarity, skills, and model probability into final score.
     """
     sim_pct = max(0.0, min(1.0, similarity_score))
     skills_pct = max(0.0, min(100.0, skills_score)) / 100.0
 
     if model_probability is None:
-        # Re-allocate model weight to the other components.
-        w_similarity = w_similarity + w_model / 2
-        w_skills = w_skills + w_model / 2
+        # redistribute weights
+        w_similarity += w_model / 2
+        w_skills += w_model / 2
         w_model = 0.0
         model_probability = 0.0
 
@@ -122,7 +123,9 @@ def compute_final_score(
 
 def dataframe_to_csv_download(df: pd.DataFrame) -> bytes:
     """
-    Convert a DataFrame to CSV bytes for Streamlit download buttons.
+    Convert DataFrame to CSV (for Streamlit download).
     """
-    return df.to_csv(index=False).encode("utf-8")
-
+    try:
+        return df.to_csv(index=False).encode("utf-8")
+    except Exception:
+        return b""

@@ -1,17 +1,58 @@
 import google.generativeai as genai
 
-# Use the recommended fast text model
+# ✅ Model config
 MODEL_NAME = "gemini-1.5-flash"
+
+# ✅ Track config state
+_IS_CONFIGURED = False
+
 
 def configure_gemini(api_key: str) -> None:
     """Configures the Gemini API client with the given key."""
+    global _IS_CONFIGURED
     if api_key:
-        genai.configure(api_key=api_key)
+        try:
+            genai.configure(api_key=api_key)
+            _IS_CONFIGURED = True
+        except Exception:
+            _IS_CONFIGURED = False
+
 
 def check_configured() -> bool:
-    # A simple way to check if an API key is currently in the environment or configured
-    # In practice, we will check if the user entered it in Streamlit.
-    return True
+    """Check if API is configured properly."""
+    return _IS_CONFIGURED
+
+
+# ✅ Reuse model (performance improvement)
+def _get_model():
+    try:
+        return genai.GenerativeModel(MODEL_NAME)
+    except Exception:
+        return None
+
+
+def _safe_generate(prompt: str) -> str:
+    """
+    Safe wrapper for Gemini API calls.
+    """
+    if not check_configured():
+        return "⚠️ Gemini API key not configured."
+
+    try:
+        model = _get_model()
+        if model is None:
+            return "⚠️ Model initialization failed."
+
+        response = model.generate_content(prompt)
+
+        if not response or not hasattr(response, "text") or not response.text:
+            return "⚠️ Empty response from model."
+
+        return response.text.strip()
+
+    except Exception as e:
+        return f"⚠️ API Error: {str(e)}"
+
 
 def generate_candidate_analysis(resume_text: str, jd: str) -> str:
     """
@@ -34,17 +75,13 @@ def generate_candidate_analysis(resume_text: str, jd: str) -> str:
     
     Be objective, precise, and concise. Use Markdown formatting.
     """
-    
-    try:
-        model = genai.GenerativeModel(MODEL_NAME)
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Error generating analysis: {str(e)}"
+
+    return _safe_generate(prompt)
+
 
 def generate_interview_questions(resume_text: str, jd: str) -> str:
     """
-    Generates tailored interview questions for the candidate based on their resume and the JD.
+    Generates tailored interview questions for the candidate.
     """
     prompt = f"""
     You are an expert technical interviewer preparing to interview a candidate.
@@ -55,30 +92,23 @@ def generate_interview_questions(resume_text: str, jd: str) -> str:
     Candidate Resume:
     {resume_text}
     
-    Based on the gaps and strengths of the candidate's resume relative to the job description, 
-    generate 5 specific, tailored interview questions. 
-    Focus on verifying claims made in the resume that are highly relevant to the JD, 
-    and probing any areas where the candidate's experience seems thin compared to the requirements.
+    Generate 5 specific, tailored interview questions based on strengths and gaps.
     
     Format as a numbered Markdown list.
     """
-    
-    try:
-        model = genai.GenerativeModel(MODEL_NAME)
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Error generating interview questions: {str(e)}"
+
+    return _safe_generate(prompt)
+
 
 def generate_email_draft(candidate_name: str, resume_text: str, jd: str, status: str) -> str:
     """
-    Generates a draft email (acceptance or rejection) for the candidate.
+    Generates a draft email (acceptance or rejection).
     """
     if status.lower() == "accept":
-        intent = "invite them to an interview, mentioning a couple of specific strengths from their resume that excited the team."
+        intent = "invite them to an interview, mentioning a couple of strengths."
     else:
-        intent = "politely reject them for the position, providing one specific piece of constructive feedback based on the main gap between their resume and the JD."
-        
+        intent = "politely reject them with one constructive feedback point."
+
     prompt = f"""
     You are a technical recruiter drafting an email to a candidate named {candidate_name}.
     
@@ -90,12 +120,7 @@ def generate_email_draft(candidate_name: str, resume_text: str, jd: str, status:
     
     Your goal is to {intent}
     
-    Draft the email. Make it professional, empathetic, and concise.
+    Draft a professional, concise email.
     """
-    
-    try:
-        model = genai.GenerativeModel(MODEL_NAME)
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Error generating email draft: {str(e)}"
+
+    return _safe_generate(prompt)

@@ -11,31 +11,37 @@ def extract_text_from_pdf(file_obj: Union[io.BytesIO, str]) -> str:
     Parameters
     ----------
     file_obj : Union[io.BytesIO, str]
-        Either a file-like object (as provided by Streamlit upload)
-        or a file path string on disk.
+        Either a file-like object (Streamlit upload) or a file path.
 
     Returns
     -------
     str
-        Extracted text concatenated across all pages. May be an empty
-        string if no extractable text is found.
+        Extracted text across all pages.
     """
+    if file_obj is None:
+        return ""
+
     try:
-        if isinstance(file_obj, (io.BytesIO, io.BufferedReader)):
+        # ✅ Handle Streamlit UploadedFile properly
+        if hasattr(file_obj, "read"):
+            file_obj.seek(0)  # important for repeated reads
             reader = PdfReader(file_obj)
         else:
             reader = PdfReader(str(file_obj))
+
     except Exception:
         return ""
 
     all_text: list[str] = []
+
     for page in reader.pages:
         try:
-            page_text = page.extract_text() or ""
+            text = page.extract_text()
+            if text:
+                cleaned = text.strip()
+                if cleaned:
+                    all_text.append(cleaned)
         except Exception:
-            page_text = ""
-        if page_text.strip():
-            all_text.append(page_text)
+            continue
 
     return "\n".join(all_text).strip()
-

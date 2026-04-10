@@ -1,4 +1,5 @@
 import re
+import os
 from typing import List
 
 import nltk
@@ -6,23 +7,35 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 
 
+# ✅ FIX: Custom NLTK data directory (important for deployment)
+NLTK_DATA_DIR = "/tmp/nltk_data"
+os.makedirs(NLTK_DATA_DIR, exist_ok=True)
+nltk.data.path.append(NLTK_DATA_DIR)
+
 _STOPWORDS = None
 
 
 def _ensure_nltk_resources() -> None:
     """
-    Download required NLTK resources if they are not already available.
-    This is safe to call multiple times.
+    Download required NLTK resources safely for deployment environments.
     """
     global _STOPWORDS
+
     try:
         nltk.data.find("tokenizers/punkt")
     except LookupError:
-        nltk.download("punkt", quiet=True)
+        nltk.download("punkt", download_dir=NLTK_DATA_DIR, quiet=True)
+
+    # ✅ FIX: This is what your error was missing
+    try:
+        nltk.data.find("tokenizers/punkt_tab")
+    except LookupError:
+        nltk.download("punkt_tab", download_dir=NLTK_DATA_DIR, quiet=True)
+
     try:
         nltk.data.find("corpora/stopwords")
     except LookupError:
-        nltk.download("stopwords", quiet=True)
+        nltk.download("stopwords", download_dir=NLTK_DATA_DIR, quiet=True)
 
     if _STOPWORDS is None:
         _STOPWORDS = set(stopwords.words("english"))
@@ -46,11 +59,17 @@ def preprocess_text(text: str) -> str:
     Full preprocessing pipeline used for both resumes and job descriptions.
     """
     _ensure_nltk_resources()
+
     cleaned = clean_text(text)
     if not cleaned:
         return ""
 
-    tokens = word_tokenize(cleaned)
+    try:
+        tokens = word_tokenize(cleaned)
+    except LookupError:
+        # ✅ fallback safety (VERY IMPORTANT)
+        tokens = cleaned.split()
+
     tokens = [t for t in tokens if t not in _STOPWORDS]
     return " ".join(tokens)
 
@@ -61,4 +80,3 @@ def tokenize(text: str) -> List[str]:
     """
     processed = preprocess_text(text)
     return processed.split() if processed else []
-
